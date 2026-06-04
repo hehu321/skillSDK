@@ -34,24 +34,25 @@ sequenceDiagram
 
 1. 支持 Markdown fenced code block 中的 `mermaid` 语法渲染为图表。
 2. Mermaid 展示结构采用“标题栏 + 图表区”，去掉源码区，不展示 Mermaid 原始代码。
-3. 流式输出期间不触发 Mermaid 渲染，内容稳定后再渲染；流式期间展示 loading 效果和生成中文案，提示用户图表正在生成。
-4. 渲染失败时显示图片加文本提示：`图表生成有问题，请重新提问试试`，并支持国际化。
-5. 仅 PC 端支持导出图片；非 PC 端不显示“导出图片”按钮。
-6. 图片下载方法以参数形式注入，组件只负责生成图片文件流和文件大小，不内置下载或兜底下载逻辑。
-7. 未传下载方法或传入方法不是函数时，通过 toast 提示用户当前环境不支持导出。
-8. 下载方法执行失败时，通过 toast 提示用户导出失败。
-9. Mermaid.js 采用本地 npm 包接入，不依赖远程服务；v1 锁定 `mermaid@9.4.3`，优先保证 ES5/UMD 构建稳定。
+3. 渲染成功后，图表在图表区内按容器尺寸等比缩小并完整展示，不依赖用户缩放、拖拽或滚动查看。
+4. 流式输出期间不触发 Mermaid 渲染，内容稳定后再渲染；流式期间展示 loading 效果和生成中文案，提示用户图表正在生成。
+5. 渲染失败时显示图片加文本提示：`图表生成有问题，请重新提问试试`，并支持国际化。
+6. 仅 PC 端支持导出图片；非 PC 端不显示“导出图片”按钮。
+7. 图片下载方法以参数形式注入，组件只负责生成图片文件流和文件大小，不内置下载或兜底下载逻辑。
+8. 未传下载方法或传入方法不是函数时，通过 toast 提示用户当前环境不支持导出。
+9. 下载方法执行失败时，通过 toast 提示用户导出失败。
+10. Mermaid.js 采用本地 npm 包接入，不依赖远程服务；v1 使用 Mermaid 当前最新版本，并通过 Webpack/Babel 对 ES5 设备做转译适配。本轮复核 npm latest 为 `mermaid@11.15.0`。
 
 ### 1.3 非目标
 
 1. 不新增后端接口，不改 `StreamMessage`、`SessionMessage`、`MessagePart` 协议结构。
-2. 不实现 Mermaid 在线编辑器、图表语法补全、缩放小地图、PDF 导出。
+2. 不实现 Mermaid 在线编辑器、图表语法补全、手动缩放、拖拽平移、缩放小地图、PDF 导出。
 3. 首期只生成 PNG 图片文件流，不导出 SVG/PDF。
 4. 不接入 Mermaid Chart 等商业托管服务。
 5. 不在渲染失败态向普通用户展示 Mermaid 原始错误堆栈。
 6. 不为移动端、H5 WebView 提供导出入口；PC 端下载能力由外部传入方法处理。
 7. 不内置 `<a download>`、打开图片 URL、长按保存等下载兜底逻辑。
-8. v1 不做 Mermaid 图表暗黑主题自适配，不使用动态 `import()` 加载 Mermaid。
+8. v1 不做 Mermaid 图表暗黑主题自适配。是否使用动态 `import()`、独立拆包或外部挂载 Mermaid，需要结合 7.4 的包体与 ES5 验证结果单独决策。
 
 ## 2. 方案图
 
@@ -67,7 +68,7 @@ flowchart TD
     F -->|"是"| G["展示 loading + 生成中文案<br/>不渲染图表<br/>不显示导出按钮"]
     F -->|"否"| H["调用 Mermaid render 生成 SVG"]
     H --> I{"渲染结果"}
-    I -->|"成功"| J["展示 SVG 图表"]
+    I -->|"成功"| J["按图表区等比缩放<br/>完整展示 SVG 图表"]
     I -->|"失败"| K["展示图片提示 + 国际化文案<br/>隐藏导出按钮"]
     J --> O{"是否 PC 端"}
     O -->|"是"| L["展示导出图片按钮"]
@@ -78,7 +79,7 @@ flowchart TD
 
 ### 2.2 方案核心
 
-核心方案是在现有 Markdown code renderer 层拦截 `language-mermaid`，将其路由到新的 `MermaidBlock`。`MermaidBlock` 负责流式 loading、稳定态渲染、失败态提示和 PC 端导出按钮；源码不展示。导出时组件生成 PNG 图片文件流和文件大小，真正的下载动作完全交给外部注入的 `downloadImage` 方法。
+核心方案是在现有 Markdown code renderer 层拦截 `language-mermaid`，将其路由到新的 `MermaidBlock`。`MermaidBlock` 负责流式 loading、稳定态渲染、图表区内等比缩小完整展示、失败态提示和 PC 端导出按钮；源码不展示。导出时组件生成 PNG 图片文件流和文件大小，真正的下载动作完全交给外部注入的 `downloadImage` 方法。
 
 ## 3. 时序图
 
@@ -152,9 +153,9 @@ sequenceDiagram
 5. 新增 Mermaid 相关 i18n 文案。
 6. 新增 Mermaid 样式文件，复用现有 `CodeBlock` 的标题栏、折叠、按钮和暗黑模式设计语言，但不展示源码区。
 7. 流式 loading 优先复用现有三点 pulse 效果；如果现有样式作用域无法直接复用，则在 `MermaidBlock` 样式中新增命名空间内的三点 loading，视觉效果与现有 `.loading-dot` 保持一致。
-8. `package.json` 增加并锁定 `mermaid@9.4.3` 依赖。
-9. `webpack.shared.js` 增加 `mermaid$` alias，指向 `mermaid/dist/mermaid.min.js`，优先使用 Mermaid 9 的 UMD/CJS 兼容入口。
-10. v1 不采用动态 `import()`，减少 UMD library 异步 chunk 路径风险；如果后续升级 Mermaid 10+，需单独评估 ESM 转译和分包加载策略。
+8. `package.json` 增加 Mermaid 当前最新版本依赖。本轮复核为 `mermaid@11.15.0`，实施时再次执行 `npm view mermaid version` 确认最新精确版本。
+9. `webpack.shared.js` 扩展依赖转译机制，支持 Mermaid ESM 包及其主要依赖族进入 Babel 转译。
+10. Mermaid 加载策略需要在实施前单独确认。若继续采用最新版 Mermaid，7.4 的验证结果表明静态 import 风险较高，应优先评估动态 `import()`、独立拆包、外部挂载或按图表类型裁剪能力；如果仍选择静态 import，必须通过包体预算和最终 ES5 产物检查。
 
 ### 4.2 核心实现方式
 
@@ -178,7 +179,16 @@ sequenceDiagram
 </div>
 ```
 
-图表区在标题栏下方展示，白底居中，大图横向滚动。组件内部仍保留 Mermaid 原始字符串用于渲染，但不在 UI 上展示源码，也不提供源码复制按钮。
+图表区在标题栏下方展示，固定白底并居中展示图表。组件内部仍保留 Mermaid 原始字符串用于渲染，但不在 UI 上展示源码，也不提供源码复制按钮。
+
+图表自适应完整展示规则：
+
+1. Mermaid 渲染成功后，读取 SVG `viewBox`；如果缺失 `viewBox`，再读取 SVG `width` / `height` 或 `getBBox()` 结果作为图表原始尺寸。
+2. 图表区保留稳定 `min-height: 160px`，最大可用高度按 `min(500px, 60vh)` 计算，避免 loading 切换到最终图表时撑爆聊天界面。
+3. 根据图表区可用宽度、最大可用高度和 SVG 原始尺寸计算等比缩放比例：`scale = min(containerWidth / svgWidth, maxPreviewHeight / svgHeight, 1)`。
+4. 默认只对超出图表区的图表做等比缩小，小图不强制放大，展示时保持居中。
+5. 预览缩放只影响 UI 展示层，不修改 Mermaid 渲染产物，也不影响导出时使用的原始 SVG 尺寸。
+6. v1 不提供手动缩放、滚轮缩放、双指缩放、拖拽平移、小地图等交互能力，也不把横向或纵向滚动作为大图查看方式。
 
 `MermaidLoading` 设计：
 
@@ -314,7 +324,7 @@ v1 固定使用浅色 `default` 主题，图表预览区和导出图片均使用
 
 #### 4.2.6 SVG 转 PNG 文件流
 
-`svgToPngBlob(svgElement)` 只负责把已渲染的 SVG 转为 PNG `Blob`，不执行下载动作。
+`svgToPngBlob(svgElement)` 只负责把已渲染的 SVG 转为 PNG `Blob`，不执行下载动作。图表区的自适应缩放只属于预览展示层，导出转换必须基于原始 SVG 逻辑尺寸和最大导出尺寸计算，不能直接截取或复用缩放后的预览尺寸。
 
 实现要求：
 
@@ -330,26 +340,49 @@ v1 固定使用浅色 `default` 主题，图表预览区和导出图片均使用
 
 #### 4.2.7 Mermaid 依赖与构建
 
-当前工程需要同时支持页面 bundle、PC bundle 和 UMD library，Webpack 目标为 ES5。Mermaid 最新版本为 ESM 包，对当前 UMD/ES5 构建链路风险较高，因此 v1 采用兼容优先策略：
+当前工程需要同时支持页面 bundle、PC bundle 和 UMD library，Webpack 目标为 ES5。Mermaid 最新版本为 ESM 包，v1 采用“最新版 Mermaid + ES5 转译适配”策略：
 
-1. `package.json` 锁定 `mermaid@9.4.3`。
-2. `webpack.shared.js` 增加 `resolve.alias`：
+1. 实施时先执行 `npm view mermaid version` 复核 latest，并在 `package.json` 写入精确版本号。本轮复核 latest 为 `mermaid@11.15.0`。
+2. 业务代码从 `mermaid` 标准入口导入，不引用 `dist` 私有路径，不配置 Mermaid 入口别名。
+3. v1 继续静态 import Mermaid，避免 UMD library 和 PC bundle 在运行时依赖异步 chunk publicPath。
+4. 保留 Webpack `target: ['web', 'es5']` 和 `output.environment` 的 ES5 输出约束。
+5. 扩展 `webpack.shared.js` 的依赖转译机制，支持精确包名和前缀匹配。Mermaid 相关转译名单包括：
 
 ```js
-alias: {
-  mermaid$: 'mermaid/dist/mermaid.min.js',
-}
+const TRANSPILE_DEPENDENCIES = [
+  // existing entries...
+  'mermaid',
+  'd3',
+  'd3-*',
+  'dagre-d3-es',
+  'cytoscape',
+  'cytoscape-*',
+  'dompurify',
+  'marked',
+  'uuid',
+  'es-toolkit',
+  'khroma',
+  'roughjs',
+  'stylis',
+  'ts-dedent',
+  'dayjs',
+  'katex',
+  '@mermaid-js/*',
+  '@braintree/*',
+  '@iconify/*',
+  '@upsetjs/*',
+];
 ```
 
-3. 业务代码仍从 `mermaid` 导入，避免实现层依赖具体 dist 路径。
-4. 实施第一步先检查 `mermaid/dist/mermaid.min.js` 的语法级别：
+6. `shouldTranspileDependency` 需要支持 `*` 前缀规则，例如 `d3-*`、`cytoscape-*`、`@mermaid-js/*`。
+7. 如果构建报出新的 Mermaid transitive dependency 语法兼容问题，优先补充转译白名单，而不是回退 Mermaid 版本。
+8. 最新版入口是 ESM，ES5 兼容性以最终构建产物为准：
 
 ```bash
-npx acorn --ecma5 node_modules/mermaid/dist/mermaid.min.js
+npx es-check es5 'dist/**/*.js' 'dist/lib/**/*.js'
 ```
 
-5. 如果 ES5 检查失败，需要将 `mermaid` 加入 `webpack.shared.js` 的 `TRANSPILE_DEPENDENCIES`，再执行构建验证。
-6. v1 不使用动态 `import()`；若后续要升级 Mermaid 10+ 或 11+，需重新评估 ESM 转译、`TRANSPILE_DEPENDENCIES`、异步 chunk publicPath 和 UMD 外部消费方式。
+9. 若最终产物 ES5 检查失败，继续补充 `TRANSPILE_DEPENDENCIES` 或前缀匹配规则，并重新执行完整构建验证。
 
 ### 4.3 兼容与边界
 
@@ -363,7 +396,7 @@ npx acorn --ecma5 node_modules/mermaid/dist/mermaid.min.js
 8. PC 端点击导出时，如果 `downloadImage` 执行失败，提示 `mermaid.exportFailed`。
 9. 导出处理中按钮禁用，避免重复触发。
 10. 下载动作完全由传入的 `downloadImage` 负责，组件不实现 `<a download>`、打开 URL、长按保存等兜底逻辑。
-11. 大图表需要横向滚动，不能撑破聊天气泡。
+11. 大图表在图表区内按容器宽高等比缩小并完整展示，不提供横向或纵向滚动作为查看方式；极端复杂图可能文字变小，但优先保证整体可见且不撑破聊天气泡。
 12. Canvas 转换 PNG 文件流时需要控制最大尺寸，避免内存峰值过高。
 13. loading 动画只在当前 Mermaid 块处于流式状态时展示；如果用户折叠卡片，则停止展示图表区 loading。
 14. `ReactMarkdown components` 引用必须稳定；动态运行时配置只通过 `MarkdownRuntimeConfigContext` 传递。
@@ -419,14 +452,14 @@ const downloadMermaidImage: MermaidDownloadImageHandler = async ({
 
 1. 更新 `docs/weAgentCUI-ai-reply-rendering.md`，补充 `text` Markdown 中 Mermaid 代码块的渲染规则。
 2. 更新 `docs/weAgentCUI-opencode-cases.md`，新增 Mermaid 渲染、PC 导出、非 PC 隐藏导出验证 case。
-3. 更新 `AGENTS.md`，在高风险渲染区补充 Mermaid 流式、PC-only 导出、下载方法注入、Context 配置传递和 Mermaid 版本锁定注意事项。
+3. 更新 `AGENTS.md`，在高风险渲染区补充 Mermaid 流式、自适应完整展示、PC-only 导出、下载方法注入、Context 配置传递、Mermaid 最新版和 ES5 转译适配注意事项。
 4. 如项目维护依赖清单或开源合规清单，需要登记 `mermaid` 及 MIT License。
 
 ## 5. 性能
 
 1. Mermaid 渲染只在内容稳定后执行，避免流式过程中每个 token 都触发解析和 SVG 布局。
 2. 流式 loading 使用轻量三点 CSS 动画，不引入额外图片或 JS 定时器。
-3. v1 锁定 `mermaid@9.4.3` 并采用静态 import，优先保证 ES5/UMD 构建稳定；暂不使用动态 `import()`，避免 library 场景异步 chunk 加载路径不稳定。
+3. v1 如果继续使用 Mermaid 当前最新版本并采用静态 import，必须重点评估包体和构建耗时。根据 7.4 的本地验证，`mermaid@11.15.0` 静态进入主 bundle 后体积和构建耗时上升明显，且 ES5 最终产物检查未稳定通过；因此最新版静态 import 不能直接视为低风险方案。
 4. 使用 `code + theme` 缓存 SVG，避免历史消息、折叠展开、父组件重渲染时重复计算。
 5. 使用 render token 防止异步结果乱序覆盖。
 6. 图片导出只在 PC 端用户点击时执行，不占用普通渲染路径性能。
@@ -435,7 +468,8 @@ const downloadMermaidImage: MermaidDownloadImageHandler = async ({
 9. 多个 Mermaid 图同时出现时，不做全局批量同步渲染；每个 `MermaidBlock` 独立渲染，后续可按需要增加视口内懒渲染。
 10. `ReactMarkdown components` 引用保持稳定，动态状态变化不会触发整棵 Markdown 子树重挂载。
 11. `MarkdownRuntimeConfigContext.Provider` 的 value 使用 `useMemo`，减少无关重渲染。
-12. SVG 缓存采用 50 条 LRU 上限，控制长会话内存占用。
+12. 预览区自适应缩放只在 SVG 渲染成功和容器尺寸变化时计算，不绑定滚轮、拖拽或持续动画，避免额外交互计算。
+13. SVG 缓存采用 50 条 LRU 上限，控制长会话内存占用。
 
 ## 6. 功耗
 
@@ -460,7 +494,7 @@ const downloadMermaidImage: MermaidDownloadImageHandler = async ({
 
 1. Markdown 渲染链路中的代码块展示。
 2. WeAgentCUI 和 SkillCUI 中 assistant/tool Markdown 内容展示。
-3. UMD library 构建体积、Mermaid alias 和 ES5 构建兼容性。
+3. 主页面 bundle、UMD library 构建体积、Mermaid ESM 依赖转译和 ES5 构建兼容性。
 4. Mermaid 卡片内部 loading 样式复用或新增命名空间样式。
 5. Markdown runtime context 配置传递。
 6. ToolCard 内部 Context 继承与 `isStreaming` 覆盖逻辑。
@@ -475,13 +509,64 @@ const downloadMermaidImage: MermaidDownloadImageHandler = async ({
 4. 不影响非 Mermaid 代码块的 `CodeBlock` 展示与复制能力。
 5. 不影响创建个人助理、助手选择、助手详情等页面业务流程。
 
+### 7.4 Mermaid 11 ES5 转译体积验证
+
+本节记录一次本地临时验证，目的是评估 `mermaid@11.15.0` 在当前项目中静态引入并尝试 ES5 转译后的包体积、构建耗时和兼容风险。验证在临时 detached worktree 中完成，验证结束后已删除临时 worktree，未把实验代码带回主工作区。
+
+验证方式：
+
+1. 从当前 `HEAD` 创建临时 worktree，复制当前 `node_modules` 和 `package-lock.json`，避免影响当前工作区已有文档改动。
+2. 先执行当前基线 `npm run build`，记录 `dist` 总体积、JS raw 体积和 gzip 体积。
+3. 通过 `npm install mermaid@11.15.0 --save-exact --ignore-scripts` 安装 Mermaid 最新版。
+4. 在临时入口中静态 import Mermaid，并执行 `mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'default' })`，确保 Mermaid 进入主页面 bundle。
+5. 临时扩展 Webpack/Babel：支持 `.mjs`、补充 Mermaid/D3/Cytoscape/KaTeX/parser/react-router/parse5/vfile/unified 等依赖转译，并尝试对 CJS/UMD 依赖增加 shim。
+6. 执行 `npm run build`，使用 Node `zlib.gzipSync` 统计 JS gzip 体积。
+7. 使用 `npx es-check@9.2.0 es5 'dist/**/*.js'` 检查最终构建产物是否满足 ES5 语法。
+
+主页面基线结果：
+
+| 指标 | 当前基线 |
+| --- | ---: |
+| `dist` 总体积 | `4,091,904` bytes，约 `3.9M` |
+| JS raw 总体积 | `2,258,162` bytes，约 `2.15 MiB` |
+| JS gzip 总体积 | `693,504` bytes，约 `677 KiB` |
+| vendor JS raw | `1,760,401` bytes，约 `1.68 MiB` |
+| Webpack 构建耗时 | 约 `7s` |
+
+引入 `mermaid@11.15.0` 并尝试 ES5 转译后的主页面结果：
+
+| 指标 | Mermaid 11 临时验证结果 | 相比基线 |
+| --- | ---: | ---: |
+| `dist` 总体积 | `7,565,312` bytes，约 `7.2M` | 增加约 `3.31 MiB` |
+| JS raw 总体积 | `5,728,656` bytes，约 `5.46 MiB` | 增加约 `3.31 MiB` |
+| JS gzip 总体积 | `1,601,627` bytes，约 `1.53 MiB` | 增加约 `887 KiB` |
+| vendor JS raw | `5,228,147` bytes，约 `4.99 MiB` | 增加约 `3.31 MiB` |
+| Webpack 构建耗时 | 约 `67s` 到 `84s` | 增加约 `10` 倍 |
+
+补充验证现象：
+
+1. Babel 转译过程中多次提示 Mermaid 依赖中的大文件超过 `500KB`，包括 `katex.mjs`、`cytoscape.esm.mjs`、`@mermaid-js/parser` chunk。
+2. 仅补 Mermaid 相关白名单不足以通过构建，过程中暴露 `dayjs`、`@braintree/sanitize-url`、`cytoscape-fcose`、`cytoscape-cose-bilkent` 的 CJS/ESM 互操作问题。
+3. 继续补白名单后，`es-check` 仍持续暴露现有 Markdown/React 依赖链中的非 ES5 语法，例如 `@remix-run/router`、`parse5`、`vfile`、`unified`、`trough`、`internmap` 等。
+4. 尝试“所有进入 bundle 的 `node_modules` 默认转译”后，会触发大量 `core-js`、React CJS/ESM 互操作和 loader 解析问题，不适合作为当前项目的直接方案。
+5. `npx es-check@9.2.0 es5 'dist/**/*.js'` 在多轮补充后仍未稳定通过，因此本次验证结论不能视为 Mermaid 11 静态 import + ES5 转译方案已经可落地。
+6. UMD 基线 Webpack 产物也较大：`dist/lib/index.js` raw `5,477,963` bytes、gzip `1,849,828` bytes；`dist/lib/skill-cui.js` raw `5,054,492` bytes、gzip `1,798,488` bytes。由于主页面 ES5 检查尚未稳定通过，未继续记录 Mermaid 11 后的稳定 UMD 产物，UMD 体积和兼容风险需要单独验证。
+
+验证结论：
+
+1. `mermaid@11.15.0` 静态进入主页面 bundle 后，包体积和构建耗时上升显著。
+2. 当前项目要做到最终 bundle ES5 语法通过，不只是补 Mermaid 依赖白名单，还会牵出既有 Markdown、router、unified、core-js 等依赖链问题。
+3. 如果 v1 继续坚持 Mermaid 最新版，建议优先评估动态 `import()`、独立拆包、外部挂载或按图表类型裁剪能力，而不是直接把 Mermaid 11 静态打入主 bundle 和 UMD library。
+4. 如果首期只需要流程图、时序图等基础能力，仍建议把 Mermaid 版本策略作为高优先级技术决策重新评估。
+
 ## 8. 实现风险与降级
 
 1. Provider value 如果不使用 `useMemo`，父组件普通重渲染会制造新的 Context value 引用，导致同一 Markdown 中的多个 `MermaidBlock` 发生额外 re-render。实现时必须缓存 runtime config。
-2. `mermaid$` alias 指向 `mermaid/dist/mermaid.min.js` 后仍可能存在 ES5 语法兼容风险。实施第一步需要运行 acorn ES5 检查；如检查失败，将 `mermaid` 加入 `TRANSPILE_DEPENDENCIES` 后再验证构建。
+2. Mermaid 最新版依赖链较大，且本地验证显示 `mermaid@11.15.0` 静态 import 会显著增加包体积和构建耗时，并可能牵出 Mermaid 外的既有依赖 ES5 问题。实施时必须以最终 bundle ES5 检查、构建错误和包体预算为准；如继续使用最新版，优先评估动态加载、独立拆包或外部挂载，而不是只依赖转译白名单。
 3. SVG 缓存如果使用无限 Map，长会话中可能累积较多 SVG 字符串。v1 采用 50 条 LRU 上限，超出后淘汰最久未访问项。
 4. `ToolCard` 不新增对外 props，内部通过父级 `MarkdownRuntimeConfigContext` 继承 `isPc/downloadImage`，仅覆盖 `isStreaming`。如果 ToolCard 没有父级配置，则按默认非 PC/无下载方法处理。
 5. 图片导出过程中任何转换失败、超时、canvas 安全异常或下载方法异常，都统一走 toast 提示，不阻断消息正文展示。
+6. 图表区以完整展示优先，极端宽图或长图被等比缩小后可能出现文字变小。该情况不作为渲染失败处理，也不提供手动缩放或拖拽查看；可引导用户重新提问生成更简洁的图表。
 
 ## 9. 测试范围
 
@@ -503,6 +588,9 @@ const downloadMermaidImage: MermaidDownloadImageHandler = async ({
 14. 动态切换 `isStreaming`、`isPc`、`downloadImage` 时，`ReactMarkdown components` 引用不重建。
 15. ToolCard 内 Mermaid 能继承父级 `isPc/downloadImage`，并按 tool running 状态展示 loading。
 16. SVG 缓存超过 50 条时淘汰最久未访问项。
+17. 宽图、长图和普通图都能在图表区内完整展示，不出现内容裁切或撑破聊天气泡。
+18. 图表预览区不出现手动缩放、拖拽平移、小地图等控件，也不响应滚轮缩放或拖拽移动。
+19. PC 端导出图片使用原始 SVG 转换结果，不受图表区预览缩放比例影响。
 
 ### 9.2 兼容测试
 
@@ -510,43 +598,46 @@ const downloadMermaidImage: MermaidDownloadImageHandler = async ({
 2. PC miniapp 环境的导出按钮、PNG 文件流生成和 `downloadImage` 调用。
 3. 非 PC WebView 中不显示导出按钮。
 4. iOS / Android / Harmony WebView 的 SVG 渲染和失败态展示。
-5. 暗黑模式下标题栏、loading 态、失败态和按钮可读性；图表区固定白底，Mermaid 图表保持浅色主题并可读。
-6. UMD library 构建后由外部页面消费时 Mermaid 依赖加载是否正常。
-7. 构建验证必须覆盖 `npm run build`、`npm run build:pc`、`npm run build:lib`、`npm run build:skill-cui-lib`。
-8. Mermaid dist 需要先通过 `npx acorn --ecma5 node_modules/mermaid/dist/mermaid.min.js` 检查；若失败，需验证加入 `TRANSPILE_DEPENDENCIES` 后构建通过。
+5. PC、移动端 WebView、窄屏聊天气泡内，图表均按当前容器宽度等比缩小完整展示。
+6. 暗黑模式下标题栏、loading 态、失败态和按钮可读性；图表区固定白底，Mermaid 图表保持浅色主题并可读。
+7. UMD library 构建后由外部页面消费时 Mermaid 依赖加载是否正常。
+8. 构建验证必须覆盖 `npm run build`、`npm run build:pc`、`npm run build:lib`、`npm run build:skill-cui-lib`。
+9. 最终构建产物需要通过 `npx es-check es5 'dist/**/*.js' 'dist/lib/**/*.js'` 或等价 ES5 语法检查；若失败，需结合 7.4 的验证结论复核 Mermaid 加载策略、转译白名单、CJS/ESM 互操作和 core-js 注入方式后重新构建。
 
 ### 9.3 文档一致性检查
 
 1. `weAgentCUI-ai-reply-rendering.md` 中 Markdown 渲染链路与实现一致。
 2. `weAgentCUI-opencode-cases.md` 中测试 case 覆盖 Mermaid 成功、失败、PC 导出和非 PC 隐藏导出。
-3. `AGENTS.md` 中新增依赖、Markdown 风险、PC-only 导出、下载方法注入、Context 配置传递和构建验证说明。
+3. `AGENTS.md` 中新增依赖、Markdown 风险、自适应完整展示、PC-only 导出、下载方法注入、Context 配置传递和构建验证说明。
 4. 开源合规文档登记 Mermaid MIT License。
 
 ## 10. 最终建议
 
-推荐采用“MermaidBlock 专用组件 + PC-only 导出入口 + 图片文件流下载方法注入”的方案。
+推荐采用“MermaidBlock 专用组件 + 图表区自适应完整展示 + PC-only 导出入口 + 图片文件流下载方法注入”的方案。
 
 原因：
 
 1. 改动收口在 Markdown 展示层，不影响协议和后端。
-2. 同时满足图表展示、失败态和 PC 端图片导出。
+2. 同时满足图表完整展示、失败态和 PC 端图片导出。
 3. 流式期间不渲染 Mermaid，但用轻量 loading 给用户明确反馈，能降低性能抖动和错误闪烁，同时避免空白等待。
 4. 下载方法参数注入后，下载动作由业务侧统一处理，`MermaidBlock` 不需要承载端差异和下载兜底逻辑。
 5. `MarkdownRuntimeConfigContext` 能保证 `ReactMarkdown components` 引用稳定，降低流式阶段整体重挂载风险。
-6. Provider value 使用 `useMemo`、ToolCard 继承父级 Context、SVG LRU 上限和 Mermaid ES5 预检能进一步降低实施阶段风险。
-7. `mermaid@9.4.3` 更适合当前 ES5/UMD 构建目标；Mermaid.js 是 MIT 开源库，可用于商业产品，上线前按公司开源合规流程登记依赖即可。
+6. 图表预览只做自动等比缩小，不提供缩放拖拽交互，能降低实现复杂度并避免多端手势差异。
+7. Provider value 使用 `useMemo`、ToolCard 继承父级 Context、SVG LRU 上限和 Mermaid ES5 预检能进一步降低实施阶段风险。
+8. Mermaid 最新版保持语法和功能能力最新；Mermaid.js 是 MIT 开源库，可用于商业产品，上线前按公司开源合规流程登记依赖即可。但根据 7.4 验证结果，最新版静态 import + ES5 转译不应作为默认低风险路径，实施前需要先确认包体预算、加载策略和 ES5 兜底方案。
 
 推荐实施顺序：
 
 1. 增加 i18n、类型和 SVG 转 PNG 文件流 helper。
-2. 实现 `MermaidBlock` 与样式，优先复用现有三点 loading 效果。
+2. 实现 `MermaidBlock` 与样式，优先复用现有三点 loading 效果，并实现图表区等比缩小完整展示。
 3. 新增 `MarkdownRuntimeConfigContext`，Provider value 使用 `useMemo`，保持 `createMarkdownComponents(true)` 静态引用。
 4. 接入 `markdownComponents.tsx`，识别 `language-mermaid`。
 5. 通过 Provider 传递流式状态、PC 判定和下载 handler；ToolCard 继承父级 Context 并覆盖自身 `isStreaming`。
-6. 锁定 `mermaid@9.4.3` 并配置 Webpack `mermaid$` alias。
-7. 对 Mermaid dist 执行 ES5 语法检查，必要时加入 `TRANSPILE_DEPENDENCIES`。
-8. 补齐单测和文档。
-9. 运行测试与构建验证。
+6. 先完成 Mermaid 版本和加载策略决策。本轮复核最新版本为 `mermaid@11.15.0`，但静态 import 需先通过包体预算和 ES5 可行性门禁。
+7. 如果继续使用 Mermaid 最新版，优先评估动态加载、独立拆包、外部挂载或按图表类型裁剪能力；若仍选择静态 import，再扩展 Webpack Mermaid 相关转译白名单和前缀匹配能力。
+8. 对最终构建产物执行 ES5 语法检查；如果失败，不能只机械补充 `TRANSPILE_DEPENDENCIES`，还需要复核加载策略、CJS/ESM 互操作和 core-js 注入方式。
+9. 补齐单测和文档。
+10. 运行测试与构建验证。
 
 ## 11. 安全
 
@@ -580,6 +671,10 @@ const downloadMermaidImage: MermaidDownloadImageHandler = async ({
 13. Mermaid 初始化参数包含 `startOnLoad: false`、`securityLevel: 'strict'`、`theme: 'default'`。
 14. 同一消息或同一 part 内多个 Mermaid 块生成不同 `diagramId`。
 15. 暗黑模式下图表预览区仍为白底，图表内容保持浅色主题可读。
+16. SVG 原始尺寸超过图表区时，按 `min(containerWidth / svgWidth, maxPreviewHeight / svgHeight, 1)` 计算等比缩小比例。
+17. SVG 原始尺寸未超过图表区时，不强制放大并保持居中。
+18. 宽图、长图渲染后完整落在图表区内，不出现横向或纵向滚动查看依赖。
+19. 图表预览区不绑定滚轮缩放、双指缩放、拖拽平移相关事件。
 
 ### 12.2 `markdownComponents` 单测
 
@@ -615,6 +710,7 @@ const downloadMermaidImage: MermaidDownloadImageHandler = async ({
 10. 图片加载超过 5 秒时 reject。
 11. canvas taint 或 `SecurityError` 会 reject，并由 `MermaidBlock` 提示导出失败。
 12. SVG 缓存超过 50 条时淘汰最久未访问项。
+13. 导出转换基于原始 SVG 逻辑尺寸和最大导出尺寸计算，不使用预览区缩放后的展示尺寸。
 
 ### 12.5 构建验证
 
@@ -622,5 +718,5 @@ const downloadMermaidImage: MermaidDownloadImageHandler = async ({
 2. `npm run build:pc`
 3. `npm run build:lib`
 4. `npm run build:skill-cui-lib`
-5. `npx acorn --ecma5 node_modules/mermaid/dist/mermaid.min.js`
-6. 验证 `mermaid@9.4.3` 和 `mermaid$` alias 在 UMD/ES5 构建中可用；若 acorn ES5 检查失败，验证加入 `TRANSPILE_DEPENDENCIES` 后构建通过。
+5. `npx es-check es5 'dist/**/*.js' 'dist/lib/**/*.js'`
+6. 验证 Mermaid 最新版、加载策略、转译白名单和前缀匹配在 UMD/ES5 构建中可用；若 ES5 检查失败，需结合 7.4 复核加载策略、CJS/ESM 互操作和 core-js 注入方式，不能只验证补充 `TRANSPILE_DEPENDENCIES`。
