@@ -40,8 +40,9 @@ sequenceDiagram
 6. 仅 PC 端支持导出图片；非 PC 端不显示“导出图片”按钮。
 7. 图片下载方法以参数形式注入，组件只负责生成图片文件流和文件大小，不内置下载或兜底下载逻辑。
 8. 未传下载方法或传入方法不是函数时，通过 toast 提示用户当前环境不支持导出。
-9. 下载方法执行失败时，通过 toast 提示用户导出失败。
-10. Mermaid.js 采用本地 npm 包接入，不依赖远程服务；v1 使用 Mermaid 当前最新版本，并通过 Webpack/Babel 对 ES5 设备做转译适配。本轮复核 npm latest 为 `mermaid@11.15.0`。
+9. PC 默认下载方法通过 Pedestal 获取默认保存目录、打开系统保存文件弹窗，并通过 `window.require('fs')` 写入用户确认的文件路径。
+10. 缺少 PC 下载能力时提示当前环境不支持导出；保存弹窗或文件写入失败时提示导出失败；用户取消保存不提示失败。
+11. Mermaid.js 采用本地 npm 包接入，不依赖远程服务；v1 使用 Mermaid 当前最新版本，并通过 Webpack/Babel 对 ES5 设备做转译适配。本轮复核 npm latest 为 `mermaid@11.15.0`。
 
 ### 1.3 非目标
 
@@ -118,6 +119,9 @@ sequenceDiagram
     participant Block as MermaidBlock
     participant Converter as SVG 转 PNG
     participant Downloader as downloadImage 参数
+    participant Pedestal as Pedestal PC 能力
+    participant Dialog as 系统保存弹窗
+    participant Fs as Node fs
     participant Toast as showToast
 
     Block->>Block: 根据 isPc 和渲染结果决定是否展示导出按钮
@@ -132,11 +136,27 @@ sequenceDiagram
             Block->>Converter: svgToPngBlob(svg)
             Converter-->>Block: { fileStream, fileSize }
             Block->>Downloader: downloadImage({ fileStream, fileSize, filename, mimeType, diagramId })
-            alt 下载方法执行失败
-                Downloader-->>Block: throw error
-                Block->>Toast: showToast(t("mermaid.exportFailed"))
-            else 下载方法执行成功
-                Downloader-->>Block: complete
+            Downloader->>Downloader: 校验 Pedestal/dialog/window.require/fs 能力
+            alt 缺少 PC 下载能力
+                Downloader-->>Block: reject unsupported
+                Block->>Toast: showToast(t("mermaid.exportUnsupported"))
+            else PC 下载能力可用
+                Downloader->>Pedestal: getLocalSettingInfo()
+                Pedestal-->>Downloader: { fileDownloadFolderAddress }
+                Downloader->>Dialog: showSaveDialog({ filters, defaultPath })
+                Dialog-->>Downloader: { canceled, filePath }
+                alt 用户取消保存
+                    Downloader-->>Block: resolve
+                else 用户确认路径
+                    alt dialog/fs 任一失败
+                        Downloader-->>Block: reject
+                        Block->>Toast: showToast(t("mermaid.exportFailed"))
+                    else 写入文件
+                        Downloader->>Fs: writeFile(filePath, fileStream bytes)
+                        Fs-->>Downloader: success
+                        Downloader-->>Block: resolve
+                    end
+                end
             end
         end
     end
@@ -148,14 +168,15 @@ sequenceDiagram
 
 1. 新增 `MermaidBlock` 组件，负责 Mermaid 流式 loading、图表展示、失败态和 PC 端导出入口。
 2. 新增 Mermaid 导出转换工具，仅负责 SVG 转 PNG 图片文件流，不负责下载。
-3. 扩展 `createMarkdownComponents`，识别 `language-mermaid`。
-4. 新增 `MarkdownRuntimeConfigContext`，由 `MessageBubble`、`ToolCard` 通过 Provider 注入 `isStreaming`、`isPc` 与 `downloadImage`，避免动态重建 `ReactMarkdown components`。
-5. 新增 Mermaid 相关 i18n 文案。
-6. 新增 Mermaid 样式文件，复用现有 `CodeBlock` 的标题栏、折叠、按钮和暗黑模式设计语言，但不展示源码区。
-7. 流式 loading 优先复用现有三点 pulse 效果；如果现有样式作用域无法直接复用，则在 `MermaidBlock` 样式中新增命名空间内的三点 loading，视觉效果与现有 `.loading-dot` 保持一致。
-8. `package.json` 增加 Mermaid 当前最新版本依赖。本轮复核为 `mermaid@11.15.0`，实施时再次执行 `npm view mermaid version` 确认最新精确版本。
-9. `webpack.shared.js` 扩展依赖转译机制，支持 Mermaid ESM 包及其主要依赖族进入 Babel 转译。
-10. Mermaid 加载策略需要在实施前单独确认。若继续采用最新版 Mermaid，7.4 的验证结果表明静态 import 风险较高，应优先评估动态 `import()`、独立拆包、外部挂载或按图表类型裁剪能力；如果仍选择静态 import，必须通过包体预算和最终 ES5 产物检查。
+3. 新增 PC 文件下载公共方法，基于 Pedestal 保存弹窗和 `window.require('fs')` 写入文件，供 Mermaid 导出或后续其他 PC 下载场景复用。
+4. 扩展 `createMarkdownComponents`，识别 `language-mermaid`。
+5. 新增 `MarkdownRuntimeConfigContext`，由 `MessageBubble`、`ToolCard` 通过 Provider 注入 `isStreaming`、`isPc` 与 `downloadImage`，避免动态重建 `ReactMarkdown components`。
+6. 新增 Mermaid 相关 i18n 文案。
+7. 新增 Mermaid 样式文件，复用现有 `CodeBlock` 的标题栏、折叠、按钮和暗黑模式设计语言，但不展示源码区。
+8. 流式 loading 优先复用现有三点 pulse 效果；如果现有样式作用域无法直接复用，则在 `MermaidBlock` 样式中新增命名空间内的三点 loading，视觉效果与现有 `.loading-dot` 保持一致。
+9. `package.json` 增加 Mermaid 当前最新版本依赖。本轮复核为 `mermaid@11.15.0`，实施时再次执行 `npm view mermaid version` 确认最新精确版本。
+10. `webpack.shared.js` 扩展依赖转译机制，支持 Mermaid ESM 包及其主要依赖族进入 Babel 转译。
+11. Mermaid 加载策略需要在实施前单独确认。若继续采用最新版 Mermaid，7.4 的验证结果表明静态 import 风险较高，应优先评估动态 `import()`、独立拆包、外部挂载或按图表类型裁剪能力；如果仍选择静态 import，必须通过包体预算和最终 ES5 产物检查。
 
 ### 4.2 核心实现方式
 
@@ -338,7 +359,81 @@ v1 固定使用浅色 `default` 主题，图表预览区和导出图片均使用
 8. 成功时返回 `{ fileStream: blob, fileSize: blob.size }`，再由 `downloadImage` 接管下载。
 9. SVG 缓存为模块级 LRU，不随单个组件卸载清空；组件卸载时只需清理自身临时资源和异步任务。
 
-#### 4.2.7 Mermaid 依赖与构建
+#### 4.2.7 PC 文件下载公共方法
+
+新增 `src/utils/pcFileDownload.ts`，封装 PC 端文件保存能力。该方法不属于 Mermaid 组件内部能力，而是页面层或业务层传给 `downloadImage` 的公共实现，后续其他 PC 下载场景也可以复用。
+
+公共方法类型：
+
+```ts
+export interface PcFileDownloadPayload {
+  fileStream: Blob;
+  fileSize: number;
+  filename: string;
+  mimeType?: string;
+  extensions?: string[];
+}
+
+export type PcFileDownloadErrorCode = 'unsupported' | 'dialog_failed' | 'write_failed';
+
+export interface PcFileDownloadError extends Error {
+  code: PcFileDownloadErrorCode;
+  cause?: unknown;
+}
+
+export async function downloadFileWithPedestal(
+  payload: PcFileDownloadPayload,
+): Promise<void>;
+```
+
+实现流程：
+
+1. 校验 `payload.fileStream` 是 `Blob`、`payload.filename` 是非空字符串；`fileSize` 作为调用方传入的文件大小元信息，不参与写入逻辑。
+2. 校验 PC 能力是否可用：`window.Pedestal.callMethod`、`window.Pedestal.remote.dialog.showSaveDialog`、`window.require`、`window.require('fs')` 以及 `fs.promises.writeFile` 或 `fs.writeFile`。缺任一关键能力时抛出 `code: 'unsupported'`。
+3. 调用 `window.Pedestal.callMethod('method://pedestal/getLocalSettingInfo', {})` 获取 `fileDownloadFolderAddress`。该调用失败不阻断导出，默认保存路径降级为安全文件名。
+4. 对 `filename` 做安全字符清洗：移除 `/ \ : * ? " < > |` 等路径或系统保留字符，空值兜底为 `mermaid-chart.png`。Mermaid 导出默认确保 `.png` 后缀。
+5. 组装保存弹窗参数：
+
+```ts
+const saveDialogPayload = {
+  filters: [{ name: 'Files', extensions: ['png'] }],
+  defaultPath,
+};
+```
+
+其中 `defaultPath` 优先使用 `fileDownloadFolderAddress + 安全文件名`；拼接前需要去掉默认目录末尾多余的 `/` 或 `\`，并按目录中已有分隔符风格补一个分隔符。如果默认目录为空或不可用，则只使用安全文件名。
+
+6. 调用 `window.Pedestal.remote.dialog.showSaveDialog(saveDialogPayload)`，返回 `{ canceled, filePath }`。
+7. 当 `canceled === true` 时直接 resolve，不写文件，不提示 toast，不视为导出失败。
+8. 当用户确认且 `filePath` 有值时，使用 `await fileStream.arrayBuffer()` 转为 `Uint8Array`，再通过 `fs.promises.writeFile(filePath, bytes)` 写入。若宿主只提供 callback 版本，则用 `fs.writeFile(filePath, bytes, callback)` 封装为 Promise。
+9. `showSaveDialog` 异常或返回确认但缺少 `filePath` 时抛出 `code: 'dialog_failed'`；文件写入失败时抛出 `code: 'write_failed'`。
+10. `MermaidBlock` 仍只调用注入的 `downloadImage`。如果 `downloadImage` reject 且错误码为 `unsupported`，提示 `mermaid.exportUnsupported`；其他异常提示 `mermaid.exportFailed`。
+
+需要同步补充类型：
+
+1. 在 `src/types/bridge/hwext.ts` 的 `Pedestal` 类型中补充可选 `remote.dialog.showSaveDialog` 定义。
+2. 在全局类型中补充最小化 `window.require` 定义，仅覆盖本方法需要的 `fs` 写入能力，不引入 `@types/node` 依赖。
+
+Mermaid 接入示例：
+
+```ts
+const downloadMermaidImage: MermaidDownloadImageHandler = async ({
+  fileStream,
+  fileSize,
+  filename,
+  mimeType,
+}) => {
+  await downloadFileWithPedestal({
+    fileStream,
+    fileSize,
+    filename,
+    mimeType,
+    extensions: ['png'],
+  });
+};
+```
+
+#### 4.2.8 Mermaid 依赖与构建
 
 当前工程需要同时支持页面 bundle、PC bundle 和 UMD library，Webpack 目标为 ES5。Mermaid 最新版本为 ESM 包，v1 采用“最新版 Mermaid + ES5 转译适配”策略：
 
@@ -393,15 +488,17 @@ npx es-check es5 'dist/**/*.js' 'dist/lib/**/*.js'
 5. 导出按钮只在 PC 端且 SVG 成功生成后展示。
 6. 非 PC 端不支持导出，也不显示导出按钮。
 7. PC 端点击导出时，如果 `downloadImage` 未传或不是函数，提示 `mermaid.exportUnsupported`。
-8. PC 端点击导出时，如果 `downloadImage` 执行失败，提示 `mermaid.exportFailed`。
-9. 导出处理中按钮禁用，避免重复触发。
-10. 下载动作完全由传入的 `downloadImage` 负责，组件不实现 `<a download>`、打开 URL、长按保存等兜底逻辑。
-11. 大图表在图表区内按容器宽高等比缩小并完整展示，不提供横向或纵向滚动作为查看方式；极端复杂图可能文字变小，但优先保证整体可见且不撑破聊天气泡。
-12. Canvas 转换 PNG 文件流时需要控制最大尺寸，避免内存峰值过高。
-13. loading 动画只在当前 Mermaid 块处于流式状态时展示；如果用户折叠卡片，则停止展示图表区 loading。
-14. `ReactMarkdown components` 引用必须稳定；动态运行时配置只通过 `MarkdownRuntimeConfigContext` 传递。
-15. v1 固定 Mermaid 浅色主题和白底图表，不随暗黑模式切换图表主题。
-16. 同一消息或同一 part 内允许出现多个 Mermaid 块，`diagramId` 使用 `useId()` 生成，不能只依赖 `message.id + part.partId`。
+8. PC 端点击导出时，如果 `downloadImage` reject 且错误码为 `unsupported`，提示 `mermaid.exportUnsupported`。
+9. PC 端点击导出时，如果 `downloadImage` reject 且不是 `unsupported`，提示 `mermaid.exportFailed`。
+10. 用户在系统保存弹窗中取消保存时，公共下载方法直接 resolve，不提示 toast，不视为失败。
+11. 导出处理中按钮禁用，避免重复触发。
+12. 下载动作完全由传入的 `downloadImage` 负责，组件不实现 `<a download>`、打开 URL、长按保存等兜底逻辑。
+13. 大图表在图表区内按容器宽高等比缩小并完整展示，不提供横向或纵向滚动作为查看方式；极端复杂图可能文字变小，但优先保证整体可见且不撑破聊天气泡。
+14. Canvas 转换 PNG 文件流时需要控制最大尺寸，避免内存峰值过高。
+15. loading 动画只在当前 Mermaid 块处于流式状态时展示；如果用户折叠卡片，则停止展示图表区 loading。
+16. `ReactMarkdown components` 引用必须稳定；动态运行时配置只通过 `MarkdownRuntimeConfigContext` 传递。
+17. v1 固定 Mermaid 浅色主题和白底图表，不随暗黑模式切换图表主题。
+18. 同一消息或同一 part 内允许出现多个 Mermaid 块，`diagramId` 使用 `useId()` 生成，不能只依赖 `message.id + part.partId`。
 
 ### 4.4 相关接口联动
 
@@ -429,21 +526,26 @@ export type MermaidDownloadImageHandler = (
 4. `createMarkdownComponents(true)` 只负责创建静态 Markdown component map，不接收运行时配置。
 5. PC 判定统一从页面层传入或复用现有 `isPcMiniApp()` 结果，避免 `MermaidBlock` 内部自行判断宿主。
 6. 组件内部提供 `svgToPngBlob(svg)` 能力，输出 `Blob` 和 `blob.size`，再调用业务传入的下载方法。
+7. 页面层在 PC 端可引入 `downloadFileWithPedestal` 作为默认 `downloadMermaidImage` 实现；非 PC 端不传下载方法且不展示导出按钮。
+8. `src/types/bridge/hwext.ts` 需要补充 Pedestal 保存弹窗类型；`src/types/global.d.ts` 需要补充 `window.require` 的最小 fs 写入类型。
 
-如果未来 PC 宿主能力支持保存图片，可在页面层传入：
+PC 端页面层接入示例：
 
 ```ts
+import { downloadFileWithPedestal } from '../utils/pcFileDownload';
+
 const downloadMermaidImage: MermaidDownloadImageHandler = async ({
   fileStream,
   fileSize,
   filename,
   mimeType,
 }) => {
-  await hostDownloadImage({
+  await downloadFileWithPedestal({
     fileStream,
     fileSize,
     filename,
     mimeType,
+    extensions: ['png'],
   });
 };
 ```
@@ -451,8 +553,8 @@ const downloadMermaidImage: MermaidDownloadImageHandler = async ({
 ### 4.5 文档需要同步修改的内容
 
 1. 更新 `docs/weAgentCUI-ai-reply-rendering.md`，补充 `text` Markdown 中 Mermaid 代码块的渲染规则。
-2. 更新 `docs/weAgentCUI-opencode-cases.md`，新增 Mermaid 渲染、PC 导出、非 PC 隐藏导出验证 case。
-3. 更新 `AGENTS.md`，在高风险渲染区补充 Mermaid 流式、自适应完整展示、PC-only 导出、下载方法注入、Context 配置传递、Mermaid 最新版和 ES5 转译适配注意事项。
+2. 更新 `docs/weAgentCUI-opencode-cases.md`，新增 Mermaid 渲染、PC 保存弹窗导出、用户取消保存、非 PC 隐藏导出验证 case。
+3. 更新 `AGENTS.md`，在高风险渲染区补充 Mermaid 流式、自适应完整展示、PC-only 导出、Pedestal 文件下载公共方法、下载方法注入、Context 配置传递、Mermaid 最新版和 ES5 转译适配注意事项。
 4. 如项目维护依赖清单或开源合规清单，需要登记 `mermaid` 及 MIT License。
 
 ## 5. 性能
@@ -464,12 +566,13 @@ const downloadMermaidImage: MermaidDownloadImageHandler = async ({
 5. 使用 render token 防止异步结果乱序覆盖。
 6. 图片导出只在 PC 端用户点击时执行，不占用普通渲染路径性能。
 7. Canvas 转 PNG 文件流按设备像素比提升清晰度，但设置最大宽高和 5 秒加载超时，避免大图或异常 SVG 导致内存峰值过高或按钮长期禁用。
-8. 组件只生成 `Blob` 和 `Blob.size`，不执行下载动作，减少浏览器兼容分支和额外资源保留时间。
-9. 多个 Mermaid 图同时出现时，不做全局批量同步渲染；每个 `MermaidBlock` 独立渲染，后续可按需要增加视口内懒渲染。
-10. `ReactMarkdown components` 引用保持稳定，动态状态变化不会触发整棵 Markdown 子树重挂载。
-11. `MarkdownRuntimeConfigContext.Provider` 的 value 使用 `useMemo`，减少无关重渲染。
-12. 预览区自适应缩放只在 SVG 渲染成功和容器尺寸变化时计算，不绑定滚轮、拖拽或持续动画，避免额外交互计算。
-13. SVG 缓存采用 50 条 LRU 上限，控制长会话内存占用。
+8. PC 文件写入只在用户确认保存路径后执行；用户取消保存时不做 `arrayBuffer` 转换和 `fs.writeFile`。
+9. 组件只生成 `Blob` 和 `Blob.size`，不执行下载动作，减少浏览器兼容分支和额外资源保留时间。
+10. 多个 Mermaid 图同时出现时，不做全局批量同步渲染；每个 `MermaidBlock` 独立渲染，后续可按需要增加视口内懒渲染。
+11. `ReactMarkdown components` 引用保持稳定，动态状态变化不会触发整棵 Markdown 子树重挂载。
+12. `MarkdownRuntimeConfigContext.Provider` 的 value 使用 `useMemo`，减少无关重渲染。
+13. 预览区自适应缩放只在 SVG 渲染成功和容器尺寸变化时计算，不绑定滚轮、拖拽或持续动画，避免额外交互计算。
+14. SVG 缓存采用 50 条 LRU 上限，控制长会话内存占用。
 
 ## 6. 功耗
 
@@ -477,7 +580,8 @@ const downloadMermaidImage: MermaidDownloadImageHandler = async ({
 2. 不在流式阶段持续执行 Mermaid 解析，降低 CPU 持续占用。
 3. loading 动画仅在 Mermaid 块流式输出期间展示，内容稳定或卡片折叠后停止。
 4. 导出图片为 PC 用户主动触发的一次性计算，完成后释放临时 object URL、canvas 和图片引用。
-5. 非 PC 端不展示导出入口，避免移动端大图转换带来的额外 CPU、内存和功耗消耗。
+5. PC 文件写入只在保存弹窗确认后发生；用户取消保存时不触发文件流读取和本地写入。
+6. 非 PC 端不展示导出入口，避免移动端大图转换带来的额外 CPU、内存和功耗消耗。
 
 ## 7. 影响范围
 
@@ -489,6 +593,7 @@ const downloadMermaidImage: MermaidDownloadImageHandler = async ({
 4. 新增 Mermaid 组件、样式、导出工具和类型定义。
 5. `src/i18n/resources/zh.ts`、`src/i18n/resources/en.ts`
 6. `package.json`、`webpack.shared.js`
+7. 新增 `src/utils/pcFileDownload.ts`，并补充 `src/types/bridge/hwext.ts`、`src/types/global.d.ts` 中 PC 保存弹窗和 `window.require('fs')` 的最小类型。
 
 ### 7.2 间接影响
 
@@ -498,12 +603,12 @@ const downloadMermaidImage: MermaidDownloadImageHandler = async ({
 4. Mermaid 卡片内部 loading 样式复用或新增命名空间样式。
 5. Markdown runtime context 配置传递。
 6. ToolCard 内部 Context 继承与 `isStreaming` 覆盖逻辑。
-7. Jest 测试中需要 mock Mermaid、canvas 转换能力、LRU 缓存和 `downloadImage` 注入函数。
+7. Jest 测试中需要 mock Mermaid、canvas 转换能力、LRU 缓存、Pedestal 保存弹窗、Node fs 写入能力和 `downloadImage` 注入函数。
 8. PC 端导出入口与非 PC 端隐藏逻辑。
 
 ### 7.3 不影响
 
-1. 不影响 `HWH5EXT`、`Pedestal` 现有协议。
+1. 不改变 `HWH5EXT`、`Pedestal` 现有协议；仅补充已有 PC 能力的类型声明和公共调用封装。
 2. 不影响后端会话、消息、历史接口。
 3. 不影响普通 Markdown 段落、列表、表格、数学公式渲染。
 4. 不影响非 Mermaid 代码块的 `CodeBlock` 展示与复制能力。
@@ -565,8 +670,10 @@ const downloadMermaidImage: MermaidDownloadImageHandler = async ({
 2. Mermaid 最新版依赖链较大，且本地验证显示 `mermaid@11.15.0` 静态 import 会显著增加包体积和构建耗时，并可能牵出 Mermaid 外的既有依赖 ES5 问题。实施时必须以最终 bundle ES5 检查、构建错误和包体预算为准；如继续使用最新版，优先评估动态加载、独立拆包或外部挂载，而不是只依赖转译白名单。
 3. SVG 缓存如果使用无限 Map，长会话中可能累积较多 SVG 字符串。v1 采用 50 条 LRU 上限，超出后淘汰最久未访问项。
 4. `ToolCard` 不新增对外 props，内部通过父级 `MarkdownRuntimeConfigContext` 继承 `isPc/downloadImage`，仅覆盖 `isStreaming`。如果 ToolCard 没有父级配置，则按默认非 PC/无下载方法处理。
-5. 图片导出过程中任何转换失败、超时、canvas 安全异常或下载方法异常，都统一走 toast 提示，不阻断消息正文展示。
+5. 图片导出过程中任何转换失败、超时、canvas 安全异常或下载方法异常，都只影响当前 Mermaid 卡片的导出动作，不阻断消息正文展示。
 6. 图表区以完整展示优先，极端宽图或长图被等比缩小后可能出现文字变小。该情况不作为渲染失败处理，也不提供手动缩放或拖拽查看；可引导用户重新提问生成更简洁的图表。
+7. PC 公共下载方法依赖 Pedestal 保存弹窗和 `window.require('fs')`。若宿主未提供相关能力，公共方法抛出 `unsupported`，Mermaid 导出层提示 `当前环境不支持导出图片`。
+8. 用户取消系统保存弹窗属于正常操作，公共方法直接 resolve；保存弹窗异常、返回确认但缺少 `filePath` 或 fs 写入失败才视为导出失败并提示 `导出图片失败`。
 
 ## 9. 测试范围
 
@@ -582,20 +689,24 @@ const downloadMermaidImage: MermaidDownloadImageHandler = async ({
 8. 非 PC 端渲染成功后不显示“导出图片”按钮。
 9. PC 端点击导出图片时成功生成 PNG `Blob`，并向 `downloadImage` 传入 `fileStream` 与 `fileSize`。
 10. PC 端未传 `downloadImage` 或传入值不是函数时，toast 提示 `当前环境不支持导出图片`。
-11. `downloadImage` 执行失败时，toast 提示 `导出图片失败`。
-12. 普通代码块仍显示为原 `CodeBlock`。
-13. 同一条消息或同一 part 中多个 Mermaid 块都能正常渲染，且 `diagramId` 不冲突。
-14. 动态切换 `isStreaming`、`isPc`、`downloadImage` 时，`ReactMarkdown components` 引用不重建。
-15. ToolCard 内 Mermaid 能继承父级 `isPc/downloadImage`，并按 tool running 状态展示 loading。
-16. SVG 缓存超过 50 条时淘汰最久未访问项。
-17. 宽图、长图和普通图都能在图表区内完整展示，不出现内容裁切或撑破聊天气泡。
-18. 图表预览区不出现手动缩放、拖拽平移、小地图等控件，也不响应滚轮缩放或拖拽移动。
-19. PC 端导出图片使用原始 SVG 转换结果，不受图表区预览缩放比例影响。
+11. `downloadImage` reject `unsupported` 时，toast 提示 `当前环境不支持导出图片`。
+12. `downloadImage` 其他执行失败时，toast 提示 `导出图片失败`。
+13. PC 公共下载方法能读取 `fileDownloadFolderAddress` 并作为保存弹窗默认目录。
+14. 用户取消系统保存弹窗时不写文件、不提示失败。
+15. 用户确认保存路径时通过 `window.require('fs')` 写入文件。
+16. 普通代码块仍显示为原 `CodeBlock`。
+17. 同一条消息或同一 part 中多个 Mermaid 块都能正常渲染，且 `diagramId` 不冲突。
+18. 动态切换 `isStreaming`、`isPc`、`downloadImage` 时，`ReactMarkdown components` 引用不重建。
+19. ToolCard 内 Mermaid 能继承父级 `isPc/downloadImage`，并按 tool running 状态展示 loading。
+20. SVG 缓存超过 50 条时淘汰最久未访问项。
+21. 宽图、长图和普通图都能在图表区内完整展示，不出现内容裁切或撑破聊天气泡。
+22. 图表预览区不出现手动缩放、拖拽平移、小地图等控件，也不响应滚轮缩放或拖拽移动。
+23. PC 端导出图片使用原始 SVG 转换结果，不受图表区预览缩放比例影响。
 
 ### 9.2 兼容测试
 
 1. Chrome / Safari PC 环境基础渲染和导出。
-2. PC miniapp 环境的导出按钮、PNG 文件流生成和 `downloadImage` 调用。
+2. PC miniapp 环境的导出按钮、PNG 文件流生成、Pedestal 保存弹窗和本地 fs 写入。
 3. 非 PC WebView 中不显示导出按钮。
 4. iOS / Android / Harmony WebView 的 SVG 渲染和失败态展示。
 5. PC、移动端 WebView、窄屏聊天气泡内，图表均按当前容器宽度等比缩小完整展示。
@@ -607,20 +718,20 @@ const downloadMermaidImage: MermaidDownloadImageHandler = async ({
 ### 9.3 文档一致性检查
 
 1. `weAgentCUI-ai-reply-rendering.md` 中 Markdown 渲染链路与实现一致。
-2. `weAgentCUI-opencode-cases.md` 中测试 case 覆盖 Mermaid 成功、失败、PC 导出和非 PC 隐藏导出。
-3. `AGENTS.md` 中新增依赖、Markdown 风险、自适应完整展示、PC-only 导出、下载方法注入、Context 配置传递和构建验证说明。
+2. `weAgentCUI-opencode-cases.md` 中测试 case 覆盖 Mermaid 成功、失败、PC 保存弹窗导出、用户取消保存和非 PC 隐藏导出。
+3. `AGENTS.md` 中新增依赖、Markdown 风险、自适应完整展示、PC-only 导出、Pedestal 文件下载公共方法、下载方法注入、Context 配置传递和构建验证说明。
 4. 开源合规文档登记 Mermaid MIT License。
 
 ## 10. 最终建议
 
-推荐采用“MermaidBlock 专用组件 + 图表区自适应完整展示 + PC-only 导出入口 + 图片文件流下载方法注入”的方案。
+推荐采用“MermaidBlock 专用组件 + 图表区自适应完整展示 + PC-only 导出入口 + Pedestal 文件下载公共方法 + 图片文件流下载方法注入”的方案。
 
 原因：
 
 1. 改动收口在 Markdown 展示层，不影响协议和后端。
 2. 同时满足图表完整展示、失败态和 PC 端图片导出。
 3. 流式期间不渲染 Mermaid，但用轻量 loading 给用户明确反馈，能降低性能抖动和错误闪烁，同时避免空白等待。
-4. 下载方法参数注入后，下载动作由业务侧统一处理，`MermaidBlock` 不需要承载端差异和下载兜底逻辑。
+4. 下载方法参数注入后，下载动作由业务侧统一处理，`MermaidBlock` 不需要承载端差异和下载兜底逻辑；PC 端默认可复用 `downloadFileWithPedestal` 完成保存弹窗和本地写入。
 5. `MarkdownRuntimeConfigContext` 能保证 `ReactMarkdown components` 引用稳定，降低流式阶段整体重挂载风险。
 6. 图表预览只做自动等比缩小，不提供缩放拖拽交互，能降低实现复杂度并避免多端手势差异。
 7. Provider value 使用 `useMemo`、ToolCard 继承父级 Context、SVG LRU 上限和 Mermaid ES5 预检能进一步降低实施阶段风险。
@@ -629,15 +740,16 @@ const downloadMermaidImage: MermaidDownloadImageHandler = async ({
 推荐实施顺序：
 
 1. 增加 i18n、类型和 SVG 转 PNG 文件流 helper。
-2. 实现 `MermaidBlock` 与样式，优先复用现有三点 loading 效果，并实现图表区等比缩小完整展示。
-3. 新增 `MarkdownRuntimeConfigContext`，Provider value 使用 `useMemo`，保持 `createMarkdownComponents(true)` 静态引用。
-4. 接入 `markdownComponents.tsx`，识别 `language-mermaid`。
-5. 通过 Provider 传递流式状态、PC 判定和下载 handler；ToolCard 继承父级 Context 并覆盖自身 `isStreaming`。
-6. 先完成 Mermaid 版本和加载策略决策。本轮复核最新版本为 `mermaid@11.15.0`，但静态 import 需先通过包体预算和 ES5 可行性门禁。
-7. 如果继续使用 Mermaid 最新版，优先评估动态加载、独立拆包、外部挂载或按图表类型裁剪能力；若仍选择静态 import，再扩展 Webpack Mermaid 相关转译白名单和前缀匹配能力。
-8. 对最终构建产物执行 ES5 语法检查；如果失败，不能只机械补充 `TRANSPILE_DEPENDENCIES`，还需要复核加载策略、CJS/ESM 互操作和 core-js 注入方式。
-9. 补齐单测和文档。
-10. 运行测试与构建验证。
+2. 新增 `downloadFileWithPedestal` 公共方法，并补充 Pedestal 保存弹窗和 `window.require('fs')` 的最小类型。
+3. 实现 `MermaidBlock` 与样式，优先复用现有三点 loading 效果，并实现图表区等比缩小完整展示。
+4. 新增 `MarkdownRuntimeConfigContext`，Provider value 使用 `useMemo`，保持 `createMarkdownComponents(true)` 静态引用。
+5. 接入 `markdownComponents.tsx`，识别 `language-mermaid`。
+6. 通过 Provider 传递流式状态、PC 判定和下载 handler；PC 页面层注入 `downloadFileWithPedestal`，ToolCard 继承父级 Context 并覆盖自身 `isStreaming`。
+7. 先完成 Mermaid 版本和加载策略决策。本轮复核最新版本为 `mermaid@11.15.0`，但静态 import 需先通过包体预算和 ES5 可行性门禁。
+8. 如果继续使用 Mermaid 最新版，优先评估动态加载、独立拆包、外部挂载或按图表类型裁剪能力；若仍选择静态 import，再扩展 Webpack Mermaid 相关转译白名单和前缀匹配能力。
+9. 对最终构建产物执行 ES5 语法检查；如果失败，不能只机械补充 `TRANSPILE_DEPENDENCIES`，还需要复核加载策略、CJS/ESM 互操作和 core-js 注入方式。
+10. 补齐单测和文档。
+11. 运行测试与构建验证。
 
 ## 11. 安全
 
@@ -649,8 +761,10 @@ const downloadMermaidImage: MermaidDownloadImageHandler = async ({
 6. 传给 `downloadImage` 的文件名使用固定前缀和安全字符，避免注入特殊路径字符。
 7. 传给 `downloadImage` 的内容限定为 PNG `Blob`、文件大小和必要元信息，不传 Mermaid 源码。
 8. `diagramId` 由 `useId()` 生成并清洗，避免用户内容参与 DOM id 拼接。
-9. 现有 Markdown 链路已使用 `rehypeRaw`，本次不扩大 raw HTML 能力；如后续安全要求提升，应单独评估 HTML sanitize。
-10. MIT License 允许使用、复制、修改、分发和销售，但需要保留版权和许可声明；公司发版前需按开源合规流程登记。
+9. PC 公共下载方法只使用清洗后的文件名构造 `defaultPath`，实际写入路径必须来自用户在系统保存弹窗中确认的 `filePath`。
+10. PC 公共下载方法不接受外部传入任意目标路径，避免调用方绕过系统保存弹窗直接写入本地文件。
+11. 现有 Markdown 链路已使用 `rehypeRaw`，本次不扩大 raw HTML 能力；如后续安全要求提升，应单独评估 HTML sanitize。
+12. MIT License 允许使用、复制、修改、分发和销售，但需要保留版权和许可声明；公司发版前需按开源合规流程登记。
 
 ## 12. 单元测试
 
@@ -666,15 +780,17 @@ const downloadMermaidImage: MermaidDownloadImageHandler = async ({
 8. UI 中不展示 Mermaid 源码区和源码复制按钮。
 9. PC 端点击导出按钮时调用传入的 `downloadImage`。
 10. `downloadImage` 未传或类型错误时调用 `showToast(t('mermaid.exportUnsupported'))`。
-11. `downloadImage` 抛错时调用 `showToast(t('mermaid.exportFailed'))`。
-12. 折叠按钮能隐藏图表区和 loading 态。
-13. Mermaid 初始化参数包含 `startOnLoad: false`、`securityLevel: 'strict'`、`theme: 'default'`。
-14. 同一消息或同一 part 内多个 Mermaid 块生成不同 `diagramId`。
-15. 暗黑模式下图表预览区仍为白底，图表内容保持浅色主题可读。
-16. SVG 原始尺寸超过图表区时，按 `min(containerWidth / svgWidth, maxPreviewHeight / svgHeight, 1)` 计算等比缩小比例。
-17. SVG 原始尺寸未超过图表区时，不强制放大并保持居中。
-18. 宽图、长图渲染后完整落在图表区内，不出现横向或纵向滚动查看依赖。
-19. 图表预览区不绑定滚轮缩放、双指缩放、拖拽平移相关事件。
+11. `downloadImage` reject `unsupported` 时调用 `showToast(t('mermaid.exportUnsupported'))`。
+12. `downloadImage` 其他抛错时调用 `showToast(t('mermaid.exportFailed'))`。
+13. `downloadImage` resolve 时不提示失败，包括用户取消保存弹窗的 resolve 场景。
+14. 折叠按钮能隐藏图表区和 loading 态。
+15. Mermaid 初始化参数包含 `startOnLoad: false`、`securityLevel: 'strict'`、`theme: 'default'`。
+16. 同一消息或同一 part 内多个 Mermaid 块生成不同 `diagramId`。
+17. 暗黑模式下图表预览区仍为白底，图表内容保持浅色主题可读。
+18. SVG 原始尺寸超过图表区时，按 `min(containerWidth / svgWidth, maxPreviewHeight / svgHeight, 1)` 计算等比缩小比例。
+19. SVG 原始尺寸未超过图表区时，不强制放大并保持居中。
+20. 宽图、长图渲染后完整落在图表区内，不出现横向或纵向滚动查看依赖。
+21. 图表预览区不绑定滚轮缩放、双指缩放、拖拽平移相关事件。
 
 ### 12.2 `markdownComponents` 单测
 
@@ -712,7 +828,21 @@ const downloadMermaidImage: MermaidDownloadImageHandler = async ({
 12. SVG 缓存超过 50 条时淘汰最久未访问项。
 13. 导出转换基于原始 SVG 逻辑尺寸和最大导出尺寸计算，不使用预览区缩放后的展示尺寸。
 
-### 12.5 构建验证
+### 12.5 PC 文件下载公共方法单测
+
+1. 正常路径下调用 `window.Pedestal.callMethod('method://pedestal/getLocalSettingInfo', {})` 获取默认保存目录。
+2. `showSaveDialog` 的入参包含 `filters: [{ name: 'Files', extensions: ['png'] }]` 和清洗后的 `defaultPath`。
+3. `fileDownloadFolderAddress` 为空或获取失败时，`defaultPath` 降级为安全文件名。
+4. 用户取消保存时不调用 `fs.writeFile`，方法 resolve。
+5. 用户确认保存路径时，将 `Blob.arrayBuffer()` 转为 `Uint8Array` 后写入 `filePath`。
+6. `fs.promises.writeFile` 可用时优先使用 Promise 版本。
+7. 仅提供 callback 版 `fs.writeFile` 时，能封装为 Promise 并正常 resolve/reject。
+8. 缺少 `Pedestal`、`remote.dialog.showSaveDialog`、`window.require` 或 `fs.writeFile` 时 reject `code: 'unsupported'`。
+9. `showSaveDialog` 异常或返回确认但无 `filePath` 时 reject `code: 'dialog_failed'`。
+10. 文件写入失败时 reject `code: 'write_failed'`。
+11. 文件名包含路径分隔符或系统保留字符时会被清洗，并保留 `.png` 后缀。
+
+### 12.6 构建验证
 
 1. `npm run build`
 2. `npm run build:pc`
