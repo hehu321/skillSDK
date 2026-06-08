@@ -35,6 +35,15 @@ cd F:\AIProject\skillSDK\skill-mock-server
 npm run start:opencode
 ```
 
+如需使用本机已有的 opencode provider/model 配置，可以显式指定配置目录和模型：
+
+```bash
+OPENCODE_BRIDGE_WORKDIR=/Users/a0000/code/ai-code/skillSDK/skillSDK \
+OPENCODE_BRIDGE_CONFIG_HOME=/Users/a0000/.config \
+OPENCODE_BRIDGE_MODEL=mimo/mimo-v2.5-pro \
+npm run start:opencode
+```
+
 默认配置：
 
 - REST: `http://localhost:8082`
@@ -48,6 +57,7 @@ npm run start:opencode
 - `OPENCODE_BRIDGE_WORKDIR`
 - `OPENCODE_BRIDGE_CONFIG_HOME`
 - `OPENCODE_BRIDGE_BIN`
+- `OPENCODE_BRIDGE_MODEL`
 
 Bridge 当前已支持：
 

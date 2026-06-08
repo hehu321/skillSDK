@@ -15,6 +15,9 @@ const DEFAULT_WORKDIR = process.env.OPENCODE_BRIDGE_WORKDIR || 'F:\\AIProject\\s
 const DEFAULT_CONFIG_HOME = process.env.OPENCODE_BRIDGE_CONFIG_HOME
   || path.join(DEFAULT_WORKDIR, '.opencode-config');
 const OPENCODE_BIN = process.env.OPENCODE_BRIDGE_BIN || (process.platform === 'win32' ? 'opencode' : 'opencode');
+const OPENCODE_MODEL = typeof process.env.OPENCODE_BRIDGE_MODEL === 'string'
+  ? process.env.OPENCODE_BRIDGE_MODEL.trim()
+  : '';
 
 const app = express();
 app.use(cors({ origin: true, credentials: true }));
@@ -476,6 +479,10 @@ function createOpencodeArgs(prompt, toolSessionId) {
     args.push('--session', toolSessionId);
   }
 
+  if (OPENCODE_MODEL) {
+    args.push('-m', OPENCODE_MODEL);
+  }
+
   return args;
 }
 
@@ -711,6 +718,7 @@ app.get('/health', (_req, res) => {
     workdir: DEFAULT_WORKDIR,
     configHome: DEFAULT_CONFIG_HOME,
     opencodeBin: OPENCODE_BIN,
+    opencodeModel: OPENCODE_MODEL,
   });
 });
 
@@ -973,4 +981,6 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`OpenCode workdir: ${DEFAULT_WORKDIR}`);
   // eslint-disable-next-line no-console
   console.log(`OpenCode config home: ${DEFAULT_CONFIG_HOME}`);
+  // eslint-disable-next-line no-console
+  console.log(`OpenCode model: ${OPENCODE_MODEL || '(default)'}`);
 });

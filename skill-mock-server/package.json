@@ -7,7 +7,8 @@
     "start": "node server.js",
     "start:opencode": "node opencode-bridge.js",
     "check": "node --check server.js",
-    "check:opencode": "node --check opencode-bridge.js"
+    "check:opencode": "node --check opencode-bridge.js",
+    "test:opencode": "node --test opencode-bridge.test.js"
   },
   "dependencies": {
     "cookie": "^1.0.2",
