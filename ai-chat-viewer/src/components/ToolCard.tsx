@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useContext, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
@@ -10,6 +10,7 @@ import arrowUpIcon from '../imgs/arrow_up_icon.svg';
 import errorIcon from '../imgs/error_icon.svg';
 import successIcon from '../imgs/success_icon.svg';
 import { createMarkdownComponents, normalizeMarkdownHtml } from './markdownComponents';
+import { MarkdownRuntimeConfigContext } from './MarkdownRuntimeConfigContext';
 import type { ToolCardProps } from '../types/components';
 
 const statusLabels: Record<string, string> = {
@@ -28,9 +29,18 @@ const statusIcons: Record<string, string> = {
 
 export const ToolCard: React.FC<ToolCardProps> = ({ part }) => {
   const [expanded, setExpanded] = useState(false);
+  const parentRuntimeConfig = useContext(MarkdownRuntimeConfigContext);
   const status = part.status ?? 'pending';
   const statusLabel = statusLabels[status] ?? status;
   const statusIcon = statusIcons[status] ?? successIcon;
+  const toolIsStreaming = status === 'pending' || status === 'running' || Boolean(part.isStreaming);
+  const runtimeConfig = useMemo(
+    () => ({
+      ...parentRuntimeConfig,
+      isStreaming: toolIsStreaming,
+    }),
+    [parentRuntimeConfig, toolIsStreaming],
+  );
   const markdownComponents: Components = useMemo(
     () => createMarkdownComponents(true),
     [],
@@ -88,19 +98,25 @@ export const ToolCard: React.FC<ToolCardProps> = ({ part }) => {
           {inputContent && (
             <div className="tool-card__section">
               <div className="tool-card__section-title">Input</div>
-              <div className="tool-card__code">{renderMarkdown(inputContent)}</div>
+              <MarkdownRuntimeConfigContext.Provider value={runtimeConfig}>
+                <div className="tool-card__code">{renderMarkdown(inputContent)}</div>
+              </MarkdownRuntimeConfigContext.Provider>
             </div>
           )}
           {part.output && (
             <div className="tool-card__section">
               <div className="tool-card__section-title">Output</div>
-              <div className="tool-card__code">{renderMarkdown(part.output)}</div>
+              <MarkdownRuntimeConfigContext.Provider value={runtimeConfig}>
+                <div className="tool-card__code">{renderMarkdown(part.output)}</div>
+              </MarkdownRuntimeConfigContext.Provider>
             </div>
           )}
           {status === 'error' && part.content && (
             <div className="tool-card__section tool-card__error">
               <div className="tool-card__section-title">Error</div>
-              <div className="tool-card__code">{renderMarkdown(part.content)}</div>
+              <MarkdownRuntimeConfigContext.Provider value={runtimeConfig}>
+                <div className="tool-card__code">{renderMarkdown(part.content)}</div>
+              </MarkdownRuntimeConfigContext.Provider>
             </div>
           )}
         </div>

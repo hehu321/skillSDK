@@ -3,10 +3,10 @@ const webpack = require('webpack');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 const {
-  RESOLVE_EXTENSIONS,
   WEBPACK_ES5_TARGET,
   createEs5Output,
   createModuleRules,
+  createResolveConfig,
 } = require('./webpack.shared');
 
 module.exports = (env = {}, argv = {}) => {
@@ -28,9 +28,7 @@ module.exports = (env = {}, argv = {}) => {
       assetModuleFilename: env.platform === 'pc' ? undefined : 'asset/[name].[contenthash][ext][query]',
       clean: true,
     }),
-    resolve: {
-      extensions: RESOLVE_EXTENSIONS,
-    },
+    resolve: createResolveConfig(),
     module: {
       rules: createModuleRules({ includePolyfills: true, platform: env.platform, product: 'CUI' }),
     },

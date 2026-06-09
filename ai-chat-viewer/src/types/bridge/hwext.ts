@@ -341,8 +341,25 @@ export interface HWH5EXT {
   openWeAgentCUI(params: OpenWeAgentCUIParams): Promise<OpenWeAgentCUIResult> | OpenWeAgentCUIResult;
 }
 
+export interface PedestalSaveDialogPayload {
+  filters: Array<{ name: 'Files'; extensions: string[] }>;
+  defaultPath: string;
+}
+
+export interface PedestalSaveDialogResult {
+  canceled: boolean;
+  filePath?: string;
+}
+
 export interface Pedestal {
   callMethod: (method: string, payload?: unknown) => Promise<unknown> | unknown;
+  remote?: {
+    dialog?: {
+      showSaveDialog?: (
+        payload: PedestalSaveDialogPayload,
+      ) => Promise<PedestalSaveDialogResult> | PedestalSaveDialogResult;
+    };
+  };
 }
 
 export interface HWH5Bridge {

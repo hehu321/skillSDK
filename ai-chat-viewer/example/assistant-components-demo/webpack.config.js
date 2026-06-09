@@ -1,8 +1,8 @@
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const {
-  RESOLVE_EXTENSIONS,
   createModuleRules,
+  createResolveConfig,
 } = require('../../webpack.shared');
 
 module.exports = {
@@ -12,9 +12,7 @@ module.exports = {
     filename: 'assistant-components-demo.bundle.js',
     clean: true,
   },
-  resolve: {
-    extensions: RESOLVE_EXTENSIONS,
-  },
+  resolve: createResolveConfig(),
   module: {
     rules: createModuleRules({ includePolyfills: true }),
   },

@@ -1,5 +1,10 @@
 const path = require('path');
-const { RESOLVE_EXTENSIONS, WEBPACK_ES5_TARGET, createEs5Output, createModuleRules } = require('./webpack.shared');
+const {
+  WEBPACK_ES5_TARGET,
+  createEs5Output,
+  createModuleRules,
+  createResolveConfig,
+} = require('./webpack.shared');
 
 const createSharedLibWebpackConfig = ({ entry, outputPath, filename, libraryName, singletonStyleTag = true, needExternals = true }, env = {}) => ({
   mode: 'production',
@@ -16,9 +21,7 @@ const createSharedLibWebpackConfig = ({ entry, outputPath, filename, libraryName
     clean: false,
     publicPath: './',
   }),
-  resolve: {
-    extensions: RESOLVE_EXTENSIONS,
-  },
+  resolve: createResolveConfig(),
   externals: needExternals ? {
     react: {
       commonjs: 'react',

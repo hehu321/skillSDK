@@ -17,6 +17,7 @@ import { PermissionCard } from './PermissionCard';
 import { ErrorBlock } from './ErrorBlock';
 import { SubtaskBlock } from './SubtaskBlock';
 import { createMarkdownComponents, normalizeMarkdownHtml } from './markdownComponents';
+import { MarkdownRuntimeConfigContext } from './MarkdownRuntimeConfigContext';
 import type { Message, MessagePart } from '../types';
 import type { MessageBubbleProps } from '../types/components';
 import {
@@ -85,6 +86,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   onQuestionAnswered,
   onCopy,
   onSendToIM,
+  isPc = false,
+  downloadMermaidImage,
   weAgentUserName = '',
   weAgentUserAvatar = '',
   weAgentAssistantName = '',
@@ -96,6 +99,14 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const hasCodeBlock = !isUser && messageContainsCodeBlock(message);
   const isPlainVariant = variant === 'plain';
   const canRenderActions = showActions && !isUser;
+  const runtimeConfig = useMemo(
+    () => ({
+      isStreaming: Boolean(message.isStreaming),
+      isPc,
+      downloadImage: downloadMermaidImage,
+    }),
+    [downloadMermaidImage, isPc, message.isStreaming],
+  );
 
   const markdownComponents: Components = useMemo(
     () => createMarkdownComponents(true),
@@ -266,7 +277,9 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   if (isPlainVariant) {
     return (
       <div className={`message-block ${isUser ? 'message-user' : 'message-assistant'}`}>
-        <div className="message-content">{messageContent}</div>
+        <MarkdownRuntimeConfigContext.Provider value={runtimeConfig}>
+          <div className="message-content">{messageContent}</div>
+        </MarkdownRuntimeConfigContext.Provider>
         {renderActions()}
       </div>
     );
@@ -305,7 +318,9 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             hasCodeBlock ? 'has-code-block' : '',
           ].filter(Boolean).join(' ')}
         >
-          <div className="message-content">{messageContent}</div>
+          <MarkdownRuntimeConfigContext.Provider value={runtimeConfig}>
+            <div className="message-content">{messageContent}</div>
+          </MarkdownRuntimeConfigContext.Provider>
         </div>
       </div>
     </div>

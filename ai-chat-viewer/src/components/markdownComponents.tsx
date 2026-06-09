@@ -1,6 +1,7 @@
 import React from 'react';
 import type { Components } from 'react-markdown';
 import { CodeBlock } from './CodeBlock';
+import { MermaidBlock } from './MermaidBlock';
 import { openH5Webview } from '../utils/hwext';
 
 const INVALID_HTML_TAG_PATTERN = /<\/?([^\s>/]+)(?=[\s>/])/g;
@@ -52,7 +53,11 @@ export function createMarkdownComponents(includeCodeBlock = false): Components {
           const match = /language-(\w+)/.exec(className ?? '');
           const codeString = String(children).replace(/\n$/, '');
           if (match) {
-            return <CodeBlock code={codeString} language={match[1]} />;
+            const language = match[1];
+            if (language.toLowerCase() === 'mermaid') {
+              return <MermaidBlock code={codeString} />;
+            }
+            return <CodeBlock code={codeString} language={language} />;
           }
           return (
             <code className={className} {...rest}>

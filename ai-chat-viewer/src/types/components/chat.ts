@@ -1,5 +1,6 @@
 import type { ImgHTMLAttributes, ReactNode } from 'react';
 import type { Message, MessagePart, PendingAssistantPreview, QuestionAnswerSubmission } from '../index';
+import type { MermaidDownloadImageHandler } from '../mermaid';
 
 export interface AppProps {
   assistantAccount?: string;
@@ -19,6 +20,8 @@ export interface ContentProps {
   onQuestionAnswered?: (submission: QuestionAnswerSubmission) => Promise<void> | void;
   onCopy?: (content: string) => Promise<void> | void;
   onSendToIM?: (content: string) => Promise<void> | void;
+  isPc?: boolean;
+  downloadMermaidImage?: MermaidDownloadImageHandler;
   weAgentUserName?: string;
   weAgentUserAvatar?: string;
   weAgentAssistantName?: string;
@@ -60,6 +63,8 @@ export interface MessageBubbleProps {
   onQuestionAnswered?: (submission: QuestionAnswerSubmission) => Promise<void> | void;
   onCopy?: (content: string) => Promise<void> | void;
   onSendToIM?: (content: string) => Promise<void> | void;
+  isPc?: boolean;
+  downloadMermaidImage?: MermaidDownloadImageHandler;
   weAgentUserName?: string;
   weAgentUserAvatar?: string;
   weAgentAssistantName?: string;

@@ -335,4 +335,5 @@ export interface ControlSkillWeCodeResponse {
   status: 'success' | 'failed';
 }
 
+export * from './mermaid';
 export * from './hooks';

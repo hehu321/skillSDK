@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import defaultAvatar from '../imgs/defaultAvatar.png';
 import type { ContentProps } from '../types/components';
@@ -6,6 +6,8 @@ import AvatarImage from './AvatarImage';
 import { MessageBubble } from './MessageBubble';
 import { PendingAssistantBubble } from './PendingAssistantBubble';
 import { shouldRenderMessage } from '../utils/message';
+import { isPcMiniApp } from '../constants';
+import { downloadFileWithPedestal } from '../utils/pcFileDownload';
 import '../styles/Content.less';
 
 const TOP_LOAD_THRESHOLD = 24;
@@ -25,6 +27,8 @@ export const Content: React.FC<ContentProps> = ({
   onQuestionAnswered,
   onCopy,
   onSendToIM,
+  isPc,
+  downloadMermaidImage,
   weAgentUserName = '',
   weAgentUserAvatar = '',
   weAgentAssistantName = '',
@@ -47,6 +51,11 @@ export const Content: React.FC<ContentProps> = ({
   const welcomeTitle = weAgentUserName ? t('weAgent.welcomeMorning', { name: weAgentUserName }) : '';
   const welcomeSubtitle = [weAgentAssistantName, weAgentAssistantDescription].filter(Boolean).join(' | ');
   const visibleMessages = messages.filter(shouldRenderMessage);
+  const resolvedIsPc = isPc ?? isPcMiniApp();
+  const resolvedDownloadMermaidImage = useMemo(
+    () => downloadMermaidImage ?? (resolvedIsPc ? downloadFileWithPedestal : undefined),
+    [downloadMermaidImage, resolvedIsPc],
+  );
 
   const getMessageOffsetTop = useCallback((messageId: string | null): number | null => {
     if (!messageId) return null;
@@ -179,6 +188,8 @@ export const Content: React.FC<ContentProps> = ({
               onQuestionAnswered={onQuestionAnswered}
               onCopy={onCopy}
               onSendToIM={onSendToIM}
+              isPc={resolvedIsPc}
+              downloadMermaidImage={resolvedDownloadMermaidImage}
               weAgentUserName={weAgentUserName}
               weAgentUserAvatar={weAgentUserAvatar}
               weAgentAssistantName={weAgentAssistantName}

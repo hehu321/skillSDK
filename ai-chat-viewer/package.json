@@ -45,6 +45,7 @@
     "core-js": "3.44.0",
     "http-serve": "^1.0.1",
     "i18next": "25.6.0",
+    "mermaid": "11.15.0",
     "react": "18.3.1",
     "react-i18next": "15.7.3",
     "react-router-dom": "6.26.0",
